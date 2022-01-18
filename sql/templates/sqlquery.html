@@ -72,6 +72,7 @@
                                         title="请选择实例:"
                                         data-placeholder="请选择实例:" required>
                                     <optgroup id="optgroup-mysql" label="MySQL"></optgroup>
+                                    <optgroup id="optgroup-doris" label="Doris"></optgroup>
                                     <optgroup id="optgroup-mssql" label="MsSQL"></optgroup>
                                     <optgroup id="optgroup-redis" label="Redis"></optgroup>
                                     <optgroup id="optgroup-pgsql" label="PgSQL"></optgroup>
@@ -872,7 +873,7 @@
                 else if (sql === 'show create table') {
                     sqlContent = "desc " + $("#table_name").val() + ";"
                 }
-            } else if (optgroup === "MySQL") {
+            } else if (optgroup === "MySQL" || optgroup === "Doris") {
                 //查看执行计划
                 if (sql === 'explain') {
                     sqlContent = 'explain ' + sqlContent
@@ -919,7 +920,7 @@
         //控制按钮和选择器显示
         function optgroup_control(change) {
             var optgroup = $('#instance_name :selected').parent().attr('label');
-            if (optgroup === "MySQL") {
+            if (optgroup === "MySQL" || optgroup === "Doris") {
                 if (change) {
                     $("#div-table_name").show();
                     $("#div-schema_name").hide();
@@ -1216,6 +1217,7 @@
                         if (data.status === 0) {
                             var result = data['data'];
                             $("#optgroup-mysql").empty();
+                            $("#optgroup-doris").empty();
                             $("#optgroup-mssql").empty();
                             $("#optgroup-redis").empty();
                             $("#optgroup-pgsql").empty();
@@ -1225,6 +1227,8 @@
                                 let instance = "<option value=\"" + result[i]['instance_name'] + "\">" + result[i]['instance_name'] + "</option>";
                                 if (result[i]['db_type'] === 'mysql') {
                                     $("#optgroup-mysql").append(instance);
+                                } else if (result[i]['db_type'] === 'doris') {
+                                    $("#optgroup-doris").append(instance);
                                 } else if (result[i]['db_type'] === 'mssql') {
                                     $("#optgroup-mssql").append(instance);
                                 } else if (result[i]['db_type'] === 'redis') {

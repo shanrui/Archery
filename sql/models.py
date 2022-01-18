@@ -80,6 +80,7 @@ class InstanceTag(models.Model):
 
 DB_TYPE_CHOICES = (
     ('mysql', 'MySQL'),
+    ('doris', 'Doris'),
     ('mssql', 'MsSQL'),
     ('redis', 'Redis'),
     ('pgsql', 'PgSQL'),

@@ -150,6 +150,11 @@ def get_engine(instance=None):  # pragma: no cover
         from .mysql import MysqlEngine
 
         return MysqlEngine(instance=instance)
+    if instance.db_type == "doris":
+        from .doris import DorisEngine
+
+        return DorisEngine(instance=instance)
+
     elif instance.db_type == "mssql":
         from .mssql import MssqlEngine
 
