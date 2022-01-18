@@ -14,7 +14,7 @@ from sql.utils.sql_utils import get_syntax_type, remove_comments
 from . import EngineBase
 from .models import ResultSet, ReviewResult, ReviewSet
 from .inception import InceptionEngine
-from sql.utils.data_masking import simple_column_mask
+from sql.utils.data_masking import sqlparse_masking
 from common.config import SysConfig
 
 logger = logging.getLogger('default')
@@ -232,7 +232,7 @@ class DorisEngine(EngineBase):
     def query_masking(self, db_name=None, sql='', resultset=None):
         """简单字段脱敏规则, 仅对select有效"""
         if re.match(r"^select", sql, re.I):
-            filtered_result = simple_column_mask(self.instance, resultset)
+            filtered_result = sqlparse_masking(self.instance, db_name, sql, resultset)
             filtered_result.is_masked = True
         else:
             filtered_result = resultset
