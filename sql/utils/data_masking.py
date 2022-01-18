@@ -10,6 +10,8 @@ from sql.engines.inception import InceptionEngine
 from sql.models import DataMaskingRules, DataMaskingColumns
 import re
 
+from .columns_sqlparse import extract, find_column_from
+
 logger = logging.getLogger('default')
 
 
@@ -349,3 +351,149 @@ def simple_column_mask(instance, sql_result):
 
     return sql_result
 
+def simple_column_mask2(instance, sql_result):
+    """输入的是一个resultset
+    sql_result.full_sql
+    sql_result.rows 查询结果列表 List , list内的item为tuple
+    sql_result.column_list 查询结果字段列表 List
+    返回同样结构的sql_result , error 中写入脱敏时产生的错误.
+    """
+
+    def findAliasFrom(alias, full_column_name=""):
+        try:
+            alias_column_regex = r'"?([^\s"]+)"?\s+(as\s+)?"?({})[",\s+]+'.format(re.escape(alias))
+            alias_column_r = re.compile(alias_column_regex, re.I)
+            # 解析原SQL查询别名字段
+            search_data = re.search(alias_column_r, sql_result.full_sql)
+            # 字段名
+            _column_name = search_data.group(1).lower()
+            s_column_name = re.sub(r'^"?\w+"?\."?|\.|"$','',_column_name)
+            if(full_column_name != _column_name):
+                return findAliasFrom(s_column_name, _column_name)
+            else:
+                return s_column_name
+        except:
+            return alias
+
+    # 获取当前实例脱敏字段信息，减少循环查询，提升效率
+    masking_columns = DataMaskingColumns.objects.filter(instance=instance, active=True)
+    # 转换sql输出字段名为小写, 适配oracle脱敏
+    sql_result_column_list = [ c.lower() for c in sql_result.column_list ]
+    if masking_columns:
+        try:
+            for mc in masking_columns:
+                # 脱敏规则字段名
+                column_name = mc.column_name.lower()
+                # 脱敏规则字段索引信息
+                _masking_column_index = []
+                if column_name in sql_result_column_list:
+                    _masking_column_index.append(sql_result_column_list.index(column_name))
+                # 别名字段脱敏处理
+                try:
+                    for _c in sql_result_column_list:
+                        s_column_name = findAliasFrom(_c)
+                        if s_column_name == column_name:
+                            _masking_column_index.append(sql_result_column_list.index(_c))
+                except:
+                    pass
+
+                for masking_column_index in _masking_column_index:
+                    # 脱敏规则
+                    masking_rule = DataMaskingRules.objects.get(rule_type=mc.rule_type)
+                    # 脱敏后替换字符串
+                    compiled_r = re.compile(masking_rule.rule_regex, re.I)
+                    replace_pattern = r""
+                    for i in range(1, compiled_r.groups + 1):
+                        if i == int(masking_rule.hide_group):
+                            replace_pattern += r"****"
+                        else:
+                            replace_pattern += r"\{}".format(i)
+
+                    rows = list(sql_result.rows)
+                    for i in range(len(sql_result.rows)):
+                        temp_value_list = []
+                        for j in range(len(sql_result.rows[i])):
+                            column_data = sql_result.rows[i][j]
+                            if j == masking_column_index:
+                                column_data = compiled_r.sub(replace_pattern, str(sql_result.rows[i][j]))
+                            temp_value_list += [ column_data ]
+                        rows[i] = tuple(temp_value_list)
+                    sql_result.rows = rows
+        except Exception as e:
+            sql_result.error = str(e)
+
+    return sql_result
+
+
+def sqlparse_masking(instance, db_name, sql, sql_result):
+
+    """输入的是一个resultset
+    sql_result.full_sql
+    sql_result.rows 查询结果列表 List , list内的item为tuple
+    sql_result.column_list 查询结果字段列表 List
+    返回同样结构的sql_result , error 中写入脱敏时产生的错误.
+    """
+
+    try:
+        # 获取当前实例脱敏字段信息，减少循环查询，提升效率
+        masking_columns = DataMaskingColumns.objects.filter(instance=instance, active=True)
+        # 转换sql输出字段名为小写, 适配oracle脱敏
+        sql_result_column_list = [ c.lower() for c in sql_result.column_list ]
+        # 脱敏字段
+        hit_columns = []
+        # 结果集列里的列的实际来源信息
+        real_columns = []
+
+        table_info = extract(sqlparse.parse(sql)[0])
+        logger.info("====== extract print======")
+        table_info.print()
+        logger.info("====== extract print end ======")
+        for _c in sql_result_column_list:
+            col = None
+            for column in table_info.columns:
+                if column.result_name() == _c:
+                    col = column
+                    break
+            if col is None:
+                raise Exception("不能从结果集中列的名称，推断出来其自的数据库和表。")
+
+            column_full_name = find_column_from(table_info, col)
+            if column_full_name[1] is None:
+                raise Exception("不能从结果集中列的名称，推断出来其自的数据库和表。")
+            if column_full_name[0] is None:
+                column_full_name[0] = db_name
+
+            real_columns.append({
+                "database_name": column_full_name[0],
+                "table_name": column_full_name[1],
+                "column_name": column_full_name[2],
+                "index": sql_result_column_list.index(_c),
+            })
+    
+        for real_column in real_columns:
+            column_info = masking_columns.filter(instance=instance, table_schema=real_column['database_name'],
+                                            table_name=real_column['table_name'], column_name=real_column['column_name'])
+            if column_info:
+                hit_columns.append({
+                    "column_name": real_column['column_name'],
+                    "index": real_column['index'],
+                    "rule_type": column_info[0].rule_type
+                })
+    except Exception as e:
+        sql_result.error = str(e)
+    else: 
+        # 对命中规则列hit_columns的数据进行脱敏
+        # 获取全部脱敏规则信息，减少循环查询，提升效率
+        masking_rules = DataMaskingRules.objects.all()
+        if hit_columns and sql_result.rows:
+            rows = list(sql_result.rows)
+            for column in hit_columns:
+                index = column['index']
+                for idx, item in enumerate(rows):
+                    rows[idx] = list(item)
+                    rows[idx][index] = regex(masking_rules, column['rule_type'], rows[idx][index])
+                sql_result.rows = rows
+            # 脱敏结果
+            sql_result.is_masked = True
+
+    return sql_result

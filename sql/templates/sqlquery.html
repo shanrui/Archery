@@ -870,7 +870,7 @@
                 else if (sql === 'show create table') {
                     sqlContent = "desc " + $("#table_name").val() + ";"
                 }
-            } else if (optgroup === "MySQL") {
+            } else if (optgroup === "MySQL" || optgroup === "Doris") {
                 //查看执行计划
                 if (sql === 'explain') {
                     sqlContent = 'explain ' + sqlContent
@@ -925,7 +925,7 @@
         //控制按钮和选择器显示
         function optgroup_control(change) {
             var optgroup = $('#instance_name :selected').parent().attr('label');
-            if (optgroup === "MySQL") {
+            if (optgroup === "MySQL" || optgroup === "Doris") {
                 if (change) {
                     $("#div-table_name").show();
                     $("#div-schema_name").hide();
